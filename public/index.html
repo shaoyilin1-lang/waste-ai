@@ -3,62 +3,186 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Waste AI</title>
+  <title>Waste AI（測試版）</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans TC", Arial; padding: 24px; }
-    .card { max-width: 520px; border: 1px solid #ddd; border-radius: 12px; padding: 16px; }
-    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #333; background: #111; color: #fff; cursor: pointer; }
-    button:disabled { opacity: .6; cursor: not-allowed; }
-    pre { background: #f6f6f6; padding: 12px; border-radius: 10px; overflow: auto; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", Arial; margin: 24px; }
+    h1 { margin: 0 0 16px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+    .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #d1d5db; background: #111827; color: #fff; cursor: pointer; }
+    button.secondary { background: #fff; color: #111827; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    input[type="file"] { padding: 8px; }
+    #video { width: 100%; max-height: 360px; background: #111827; border-radius: 12px; }
+    #preview { width: 100%; max-height: 360px; border-radius: 12px; border: 1px dashed #d1d5db; display: none; }
+    .muted { color: #6b7280; font-size: 14px; }
+    pre { background: #0b1020; color: #e5e7eb; padding: 12px; border-radius: 12px; overflow: auto; }
+    .ok { color: #16a34a; font-weight: 700; }
+    .bad { color: #dc2626; font-weight: 700; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <h1>Waste AI（測試版）</h1>
+  <p class="muted">功能：上傳圖片 / 開鏡頭拍照 → 呼叫 <code>/classify</code> → 顯示分類結果。</p>
 
-  <div class="card">
-    <p>選一張圖片，上傳到 <code>/classify</code>，回傳分類結果。</p>
+  <div class="grid">
+    <!-- 左：檔案上傳 -->
+    <div class="card">
+      <h2 style="margin-top:0">A) 選檔上傳分類</h2>
+      <div class="row">
+        <input id="fileInput" type="file" accept="image/*" />
+        <button id="btnUpload">上傳並分類</button>
+      </div>
+      <p class="muted">欄位名稱會用 <code>image</code>（跟你的 server.js 一致）。</p>
+    </div>
 
-    <input id="file" type="file" accept="image/*" />
-    <div style="height:12px"></div>
-    <button id="btn">上傳並分類</button>
+    <!-- 右：鏡頭掃描 -->
+    <div class="card">
+      <h2 style="margin-top:0">B) 鏡頭掃描（拍照分類）</h2>
 
-    <div style="height:12px"></div>
-    <div id="status"></div>
-    <pre id="out"></pre>
+      <video id="video" playsinline autoplay></video>
+      <img id="preview" alt="拍照預覽" />
+
+      <canvas id="canvas" style="display:none"></canvas>
+
+      <div class="row" style="margin-top:10px">
+        <button id="btnStart" class="secondary">開啟鏡頭</button>
+        <button id="btnShot" disabled>拍照並分類</button>
+        <button id="btnStop" class="secondary" disabled>關閉鏡頭</button>
+      </div>
+
+      <p class="muted">
+        如果瀏覽器跳出權限，請按「允許」。手機建議用 Chrome / Safari，且一定要用 HTTPS（Render 已是 HTTPS）。
+      </p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2 style="margin-top:0">結果</h2>
+    <div id="status" class="muted">尚未送出。</div>
+    <pre id="out">{}</pre>
   </div>
 
   <script>
-    const fileEl = document.getElementById('file');
-    const btn = document.getElementById('btn');
-    const statusEl = document.getElementById('status');
     const outEl = document.getElementById('out');
+    const statusEl = document.getElementById('status');
 
-    btn.addEventListener('click', async () => {
-      const f = fileEl.files?.[0];
-      if (!f) {
-        alert('請先選圖片');
-        return;
+    function setStatus(msg, ok = true) {
+      statusEl.innerHTML = `<span class="${ok ? 'ok' : 'bad'}">${ok ? '✔' : '✖'}</span> ${msg}`;
+    }
+
+    async function classifyBlob(blob, filename = 'capture.jpg') {
+      const fd = new FormData();
+      fd.append('image', new File([blob], filename, { type: blob.type || 'image/jpeg' }));
+
+      const res = await fetch('/classify', { method: 'POST', body: fd });
+      const text = await res.text();
+
+      let data;
+      try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+      if (!res.ok) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
       }
+      return data;
+    }
 
-      btn.disabled = true;
-      statusEl.textContent = '上傳中...';
-      outEl.textContent = '';
+    // A) 檔案上傳
+    document.getElementById('btnUpload').addEventListener('click', async () => {
+      const f = document.getElementById('fileInput').files?.[0];
+      if (!f) return setStatus('請先選一張圖片。', false);
 
       try {
-        const fd = new FormData();
-        fd.append('image', f); // 這個欄位名一定要叫 image
-
-        const res = await fetch('/classify', { method: 'POST', body: fd });
-        const data = await res.json();
-
-        statusEl.textContent = res.ok ? '完成 ✅' : '失敗 ❌';
+        setStatus('上傳中…');
+        const data = await classifyBlob(f, f.name);
         outEl.textContent = JSON.stringify(data, null, 2);
+        setStatus('分類完成 ✅');
       } catch (e) {
-        statusEl.textContent = '失敗 ❌';
-        outEl.textContent = String(e);
-      } finally {
-        btn.disabled = false;
+        outEl.textContent = JSON.stringify({ error: String(e) }, null, 2);
+        setStatus('分類失敗（看結果區 error）', false);
       }
+    });
+
+    // B) 鏡頭
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const preview = document.getElementById('preview');
+    const btnStart = document.getElementById('btnStart');
+    const btnShot = document.getElementById('btnShot');
+    const btnStop = document.getElementById('btnStop');
+
+    let stream = null;
+
+    btnStart.addEventListener('click', async () => {
+      try {
+        setStatus('開啟鏡頭中…');
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }, audio: false
+        });
+        video.srcObject = stream;
+        btnShot.disabled = false;
+        btnStop.disabled = false;
+        btnStart.disabled = true;
+        preview.style.display = 'none';
+        setStatus('鏡頭已開啟，按「拍照並分類」。');
+      } catch (e) {
+        setStatus('無法開啟鏡頭（可能是權限/裝置不支援）。', false);
+        outEl.textContent = JSON.stringify({ error: String(e) }, null, 2);
+      }
+    });
+
+    btnStop.addEventListener('click', () => {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      video.srcObject = null;
+      btnShot.disabled = true;
+      btnStop.disabled = true;
+      btnStart.disabled = false;
+      setStatus('鏡頭已關閉。');
+    });
+
+    btnShot.addEventListener('click', async () => {
+      if (!stream) return setStatus('請先開啟鏡頭。', false);
+
+      try {
+        setStatus('拍照中…');
+
+        // 把目前影像畫到 canvas
+        const w = video.videoWidth || 1280;
+        const h = video.videoHeight || 720;
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, w, h);
+
+        // 顯示預覽（可選）
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        preview.src = dataUrl;
+        preview.style.display = 'block';
+
+        // 轉 blob 丟給 /classify
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+        if (!blob) throw new Error('toBlob 失敗');
+
+        setStatus('送出分類中…');
+        const data = await classifyBlob(blob, 'camera.jpg');
+        outEl.textContent = JSON.stringify(data, null, 2);
+        setStatus('鏡頭分類完成 ✅');
+      } catch (e) {
+        outEl.textContent = JSON.stringify({ error: String(e) }, null, 2);
+        setStatus('鏡頭分類失敗（看結果區 error）', false);
+      }
+    });
+
+    // 小提醒：如果你的後端只有 /health，也可以在這裡測一下
+    fetch('/health').then(r => r.json()).then(() => {
+      // ok
+    }).catch(() => {
+      // ignore
     });
   </script>
 </body>
