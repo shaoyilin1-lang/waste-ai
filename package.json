@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0",
+    "express": "^5.2.1",
+    "jimp": "^1.6.0",
+    "multer": "^2.0.2"
+  }
+}
+{
+  "scripts": {
+    "start": "node server.js"
+  }
+}

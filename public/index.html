@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>垃圾辨識</title>
+  <style>
+    html, body {
+      margin: 0;
+      background: black;
+      font-family: sans-serif;
+    }
+    video {
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      position: fixed;
+    }
+    #overlay {
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      padding: 20px;
+      text-align: center;
+      background: rgba(0,0,0,0.6);
+    }
+    #item { font-size: 36px; color: white; }
+    #category { font-size: 28px; margin-top: 10px; }
+    .recycle { color: #00ff88; }
+    .garbage { color: #ff5555; }
+  </style>
+</head>
+<body>
+
+<video id="camera" autoplay playsinline></video>
+
+<div id="overlay">
+  <div id="item">請對準物品</div>
+  <div id="category"></div>
+</div>
+
+<script>
+const video = document.getElementById('camera');
+const itemEl = document.getElementById('item');
+const catEl = document.getElementById('category');
+
+navigator.mediaDevices.getUserMedia({
+  video: { facingMode: { ideal: "environment" } },
+  audio: false
+}).then(stream => video.srcObject = stream);
+
+let lock = false;
+
+async function captureAndSend() {
+  if (lock) return;
+  lock = true;
+  setTimeout(() => lock = false, 2000);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.9));
+  const form = new FormData();
+  form.append('image', blob);
+
+  const res = await fetch('/classify', { method: 'POST', body: form });
+  const data = await res.json();
+
+  itemEl.innerText = data.item;
+  catEl.innerText = data.category;
+  catEl.className = data.category === '資源回收' ? 'recycle' : 'garbage';
+
+  form.append('item', data.item);
+  form.append('category', data.category);
+  await fetch('/capture', { method: 'POST', body: form });
+}
+
+setInterval(captureAndSend, 2500);
+</script>
+
+</body>
+</html>
