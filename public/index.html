@@ -1,84 +1,32 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
+<!doctype html>
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title>垃圾辨識</title>
-  <style>
-    html, body {
-      margin: 0;
-      background: black;
-      font-family: sans-serif;
-    }
-    video {
-      width: 100vw;
-      height: 100vh;
-      object-fit: cover;
-      position: fixed;
-    }
-    #overlay {
-      position: fixed;
-      bottom: 0;
-      width: 100%;
-      padding: 20px;
-      text-align: center;
-      background: rgba(0,0,0,0.6);
-    }
-    #item { font-size: 36px; color: white; }
-    #category { font-size: 28px; margin-top: 10px; }
-    .recycle { color: #00ff88; }
-    .garbage { color: #ff5555; }
-  </style>
+  <meta charset="utf-8" />
+  <title>Waste AI</title>
 </head>
 <body>
+  <h1>Waste AI 分類測試</h1>
 
-<video id="camera" autoplay playsinline></video>
+  <input id="file" type="file" accept="image/*" />
+  <button id="btn">送出分類</button>
 
-<div id="overlay">
-  <div id="item">請對準物品</div>
-  <div id="category"></div>
-</div>
+  <pre id="out"></pre>
 
-<script>
-const video = document.getElementById('camera');
-const itemEl = document.getElementById('item');
-const catEl = document.getElementById('category');
+  <script>
+    const out = document.getElementById("out");
 
-navigator.mediaDevices.getUserMedia({
-  video: { facingMode: { ideal: "environment" } },
-  audio: false
-}).then(stream => video.srcObject = stream);
+    document.getElementById("btn").onclick = async () => {
+      const f = document.getElementById("file").files[0];
+      if (!f) return alert("請先選圖片");
 
-let lock = false;
+      const fd = new FormData();
+      fd.append("image", f); // 這個名字要跟 upload.single("image") 一樣
 
-async function captureAndSend() {
-  if (lock) return;
-  lock = true;
-  setTimeout(() => lock = false, 2000);
+      out.textContent = "送出中...";
 
-  const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
-
-  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.9));
-  const form = new FormData();
-  form.append('image', blob);
-
-  const res = await fetch('/classify', { method: 'POST', body: form });
-  const data = await res.json();
-
-  itemEl.innerText = data.item;
-  catEl.innerText = data.category;
-  catEl.className = data.category === '資源回收' ? 'recycle' : 'garbage';
-
-  form.append('item', data.item);
-  form.append('category', data.category);
-  await fetch('/capture', { method: 'POST', body: form });
-}
-
-setInterval(captureAndSend, 2500);
-</script>
-
+      const res = await fetch("/classify", { method: "POST", body: fd });
+      out.textContent = await res.text();
+    };
+  </script>
 </body>
 </html>
