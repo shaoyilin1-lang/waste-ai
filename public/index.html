@@ -3,187 +3,366 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Waste AI（測試版）</title>
+  <title>Waste AI（掃描框版）</title>
   <style>
     body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", Arial; margin: 24px; }
-    h1 { margin: 0 0 16px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-    .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #d1d5db; background: #111827; color: #fff; cursor: pointer; }
-    button.secondary { background: #fff; color: #111827; }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-    input[type="file"] { padding: 8px; }
-    #video { width: 100%; max-height: 360px; background: #111827; border-radius: 12px; }
-    #preview { width: 100%; max-height: 360px; border-radius: 12px; border: 1px dashed #d1d5db; display: none; }
-    .muted { color: #6b7280; font-size: 14px; }
-    pre { background: #0b1020; color: #e5e7eb; padding: 12px; border-radius: 12px; overflow: auto; }
-    .ok { color: #16a34a; font-weight: 700; }
-    .bad { color: #dc2626; font-weight: 700; }
-    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    h1 { margin: 0 0 10px; }
+    .muted { color:#6b7280; font-size:14px; margin: 0 0 14px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; max-width: 960px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #d1d5db; background:#111827; color:#fff; cursor:pointer; }
+    button.secondary { background:#fff; color:#111827; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .pill { display:inline-flex; gap:6px; align-items:center; padding:4px 10px; border-radius:999px; border:1px solid #d1d5db; }
+    pre { background:#0b1020; color:#e5e7eb; padding:12px; border-radius:12px; overflow:auto; margin-top:12px; }
+
+    /* 視訊 + 掃描框容器 */
+    .viewer {
+      position: relative;
+      width: 100%;
+      max-height: 520px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #111827;
+    }
+    video {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    /* 暗化遮罩（框外變暗） */
+    .shade {
+      position:absolute; inset:0;
+      pointer-events:none;
+      background: rgba(0,0,0,0.35);
+      mask: none;
+      -webkit-mask: none;
+    }
+
+    /* 掃描框 */
+    #box {
+      position:absolute;
+      border: 3px solid rgba(255,255,255,0.95);
+      border-radius: 14px;
+      box-shadow: 0 0 0 2000px rgba(0,0,0,0.35); /* 框外暗化 */
+      cursor: move;
+      touch-action: none;
+    }
+    #box::after{
+      content:"";
+      position:absolute; inset:10px;
+      border: 1px dashed rgba(255,255,255,0.65);
+      border-radius: 10px;
+    }
+
+    /* 四角把手 */
+    .handle {
+      position:absolute;
+      width:18px; height:18px;
+      border-radius:6px;
+      background: rgba(255,255,255,0.95);
+      border: 1px solid rgba(0,0,0,0.2);
+      touch-action:none;
+    }
+    .tl { left:-9px; top:-9px; cursor:nwse-resize; }
+    .tr { right:-9px; top:-9px; cursor:nesw-resize; }
+    .bl { left:-9px; bottom:-9px; cursor:nesw-resize; }
+    .br { right:-9px; bottom:-9px; cursor:nwse-resize; }
+
+    .ok { color:#16a34a; font-weight:700; }
+    .bad { color:#dc2626; font-weight:700; }
   </style>
 </head>
 <body>
-  <h1>Waste AI（測試版）</h1>
-  <p class="muted">功能：上傳圖片 / 開鏡頭拍照 → 呼叫 <code>/classify</code> → 顯示分類結果。</p>
+  <h1>Waste AI（掃描框版）</h1>
+  <p class="muted">把框框對準物品 → 開始掃描後會定時截取「框內」畫面送到 <code>/classify</code>，結果自動更新。</p>
 
-  <div class="grid">
-    <!-- 左：檔案上傳 -->
-    <div class="card">
-      <h2 style="margin-top:0">A) 選檔上傳分類</h2>
-      <div class="row">
-        <input id="fileInput" type="file" accept="image/*" />
-        <button id="btnUpload">上傳並分類</button>
-      </div>
-      <p class="muted">欄位名稱會用 <code>image</code>（跟你的 server.js 一致）。</p>
-    </div>
-
-    <!-- 右：鏡頭掃描 -->
-    <div class="card">
-      <h2 style="margin-top:0">B) 鏡頭掃描（拍照分類）</h2>
-
+  <div class="card">
+    <div class="viewer" id="viewer">
       <video id="video" playsinline autoplay></video>
-      <img id="preview" alt="拍照預覽" />
 
-      <canvas id="canvas" style="display:none"></canvas>
-
-      <div class="row" style="margin-top:10px">
-        <button id="btnStart" class="secondary">開啟鏡頭</button>
-        <button id="btnShot" disabled>拍照並分類</button>
-        <button id="btnStop" class="secondary" disabled>關閉鏡頭</button>
+      <!-- 掃描框 -->
+      <div id="box">
+        <div class="handle tl" data-h="tl"></div>
+        <div class="handle tr" data-h="tr"></div>
+        <div class="handle bl" data-h="bl"></div>
+        <div class="handle br" data-h="br"></div>
       </div>
-
-      <p class="muted">
-        如果瀏覽器跳出權限，請按「允許」。手機建議用 Chrome / Safari，且一定要用 HTTPS（Render 已是 HTTPS）。
-      </p>
     </div>
-  </div>
 
-  <div class="card" style="margin-top:16px">
-    <h2 style="margin-top:0">結果</h2>
-    <div id="status" class="muted">尚未送出。</div>
+    <canvas id="canvas" style="display:none"></canvas>
+
+    <div class="row">
+      <button id="btnStart" class="secondary">開啟鏡頭</button>
+      <button id="btnScan" disabled>開始掃描</button>
+      <button id="btnStop" class="secondary" disabled>停止 / 關閉</button>
+
+      <span class="pill">
+        間隔：
+        <select id="interval">
+          <option value="400">0.4 秒</option>
+          <option value="700">0.7 秒</option>
+          <option value="1000" selected>1 秒</option>
+          <option value="1500">1.5 秒</option>
+        </select>
+      </span>
+
+      <span class="pill">
+        只送框內：
+        <input id="cropOnly" type="checkbox" checked />
+      </span>
+
+      <span class="pill">狀態：<span id="status" class="muted">尚未開始</span></span>
+    </div>
+
     <pre id="out">{}</pre>
   </div>
 
   <script>
+    const video = document.getElementById('video');
+    const viewer = document.getElementById('viewer');
+    const box = document.getElementById('box');
+    const canvas = document.getElementById('canvas');
     const outEl = document.getElementById('out');
     const statusEl = document.getElementById('status');
 
-    function setStatus(msg, ok = true) {
+    const btnStart = document.getElementById('btnStart');
+    const btnScan  = document.getElementById('btnScan');
+    const btnStop  = document.getElementById('btnStop');
+    const intervalSel = document.getElementById('interval');
+    const cropOnly = document.getElementById('cropOnly');
+
+    let stream = null;
+    let timer = null;
+    let busy = false;
+
+    // 初始化掃描框位置（用百分比存，縮放也不跑掉）
+    let boxState = { x: 0.18, y: 0.18, w: 0.52, h: 0.52 }; // 相對 viewer 的比例
+    function renderBox() {
+      const r = viewer.getBoundingClientRect();
+      box.style.left = (boxState.x * r.width) + 'px';
+      box.style.top  = (boxState.y * r.height) + 'px';
+      box.style.width  = (boxState.w * r.width) + 'px';
+      box.style.height = (boxState.h * r.height) + 'px';
+    }
+    window.addEventListener('resize', renderBox);
+
+    function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+    function setStatus(msg, ok=true) {
       statusEl.innerHTML = `<span class="${ok ? 'ok' : 'bad'}">${ok ? '✔' : '✖'}</span> ${msg}`;
     }
 
-    async function classifyBlob(blob, filename = 'capture.jpg') {
+    async function classifyBlob(blob) {
       const fd = new FormData();
-      fd.append('image', new File([blob], filename, { type: blob.type || 'image/jpeg' }));
-
-      const res = await fetch('/classify', { method: 'POST', body: fd });
+      fd.append('image', new File([blob], 'scan.jpg', { type: blob.type || 'image/jpeg' }));
+      const res = await fetch('/classify', { method:'POST', body: fd });
       const text = await res.text();
-
       let data;
       try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
-      if (!res.ok) {
-        throw new Error(data?.error || `HTTP ${res.status}`);
-      }
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       return data;
     }
 
-    // A) 檔案上傳
-    document.getElementById('btnUpload').addEventListener('click', async () => {
-      const f = document.getElementById('fileInput').files?.[0];
-      if (!f) return setStatus('請先選一張圖片。', false);
+    // 把「viewer 上的框」換算成「video 原始像素座標」
+    function getCropRectInVideoPixels() {
+      const vb = viewer.getBoundingClientRect();
+      const bb = box.getBoundingClientRect();
+
+      // 框在 viewer 的相對座標 (0~1)
+      const rx = (bb.left - vb.left) / vb.width;
+      const ry = (bb.top  - vb.top ) / vb.height;
+      const rw = bb.width / vb.width;
+      const rh = bb.height / vb.height;
+
+      // 對應到 video 真實解析度
+      const vw = video.videoWidth  || 1280;
+      const vh = video.videoHeight || 720;
+
+      return {
+        sx: Math.round(rx * vw),
+        sy: Math.round(ry * vh),
+        sw: Math.round(rw * vw),
+        sh: Math.round(rh * vh),
+      };
+    }
+
+    async function scanOnce() {
+      if (!stream || busy) return;
+      busy = true;
 
       try {
-        setStatus('上傳中…');
-        const data = await classifyBlob(f, f.name);
+        const vw = video.videoWidth  || 1280;
+        const vh = video.videoHeight || 720;
+
+        const ctx = canvas.getContext('2d');
+
+        if (cropOnly.checked) {
+          const { sx, sy, sw, sh } = getCropRectInVideoPixels();
+          const csw = clamp(sw, 20, vw);
+          const csh = clamp(sh, 20, vh);
+
+          canvas.width = csw;
+          canvas.height = csh;
+          ctx.drawImage(video, sx, sy, csw, csh, 0, 0, csw, csh);
+        } else {
+          canvas.width = vw;
+          canvas.height = vh;
+          ctx.drawImage(video, 0, 0, vw, vh);
+        }
+
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+        if (!blob) throw new Error('toBlob 失敗');
+
+        const data = await classifyBlob(blob);
         outEl.textContent = JSON.stringify(data, null, 2);
-        setStatus('分類完成 ✅');
+        setStatus('掃描中…（結果自動更新）');
       } catch (e) {
         outEl.textContent = JSON.stringify({ error: String(e) }, null, 2);
-        setStatus('分類失敗（看結果區 error）', false);
+        setStatus('掃描失敗（看 error）', false);
+      } finally {
+        busy = false;
       }
-    });
+    }
 
-    // B) 鏡頭
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const preview = document.getElementById('preview');
-    const btnStart = document.getElementById('btnStart');
-    const btnShot = document.getElementById('btnShot');
-    const btnStop = document.getElementById('btnStop');
-
-    let stream = null;
-
+    // 開鏡頭
     btnStart.addEventListener('click', async () => {
       try {
         setStatus('開啟鏡頭中…');
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }, audio: false
+          video: { facingMode: 'environment' },
+          audio: false
         });
         video.srcObject = stream;
-        btnShot.disabled = false;
+
+        // 等 video 有尺寸再畫框
+        await new Promise(r => {
+          if (video.videoWidth) return r();
+          video.onloadedmetadata = () => r();
+        });
+
+        renderBox();
+
+        btnScan.disabled = false;
         btnStop.disabled = false;
         btnStart.disabled = true;
-        preview.style.display = 'none';
-        setStatus('鏡頭已開啟，按「拍照並分類」。');
+        setStatus('鏡頭已開啟（可開始掃描）');
       } catch (e) {
-        setStatus('無法開啟鏡頭（可能是權限/裝置不支援）。', false);
+        setStatus('無法開啟鏡頭（權限/裝置問題）', false);
         outEl.textContent = JSON.stringify({ error: String(e) }, null, 2);
       }
     });
 
+    // 開始掃描（定時）
+    btnScan.addEventListener('click', async () => {
+      if (!stream) return setStatus('請先開啟鏡頭。', false);
+      if (timer) return;
+
+      await scanOnce();
+      const ms = Number(intervalSel.value || 1000);
+      timer = setInterval(scanOnce, ms);
+
+      btnScan.disabled = true;
+      intervalSel.disabled = true;
+      setStatus(`已開始掃描（每 ${ms}ms）`);
+    });
+
+    // 停止
     btnStop.addEventListener('click', () => {
+      if (timer) { clearInterval(timer); timer = null; }
+      intervalSel.disabled = false;
+      btnScan.disabled = false;
+
       if (stream) {
         stream.getTracks().forEach(t => t.stop());
         stream = null;
       }
       video.srcObject = null;
-      btnShot.disabled = true;
+
       btnStop.disabled = true;
       btnStart.disabled = false;
-      setStatus('鏡頭已關閉。');
+      btnScan.disabled = true;
+      setStatus('已停止並關閉鏡頭。');
     });
 
-    btnShot.addEventListener('click', async () => {
-      if (!stream) return setStatus('請先開啟鏡頭。', false);
+    // ===== 掃描框拖曳 / 拉伸 =====
+    let drag = null;
 
-      try {
-        setStatus('拍照中…');
+    function pointerPos(e){
+      const r = viewer.getBoundingClientRect();
+      return {
+        x: (e.clientX - r.left) / r.width,
+        y: (e.clientY - r.top) / r.height,
+        w: r.width, h: r.height
+      };
+    }
 
-        // 把目前影像畫到 canvas
-        const w = video.videoWidth || 1280;
-        const h = video.videoHeight || 720;
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, w, h);
+    function startDrag(e, mode){
+      e.preventDefault();
+      const p = pointerPos(e);
+      drag = {
+        mode,
+        startX: p.x,
+        startY: p.y,
+        start: { ...boxState }
+      };
+      box.setPointerCapture(e.pointerId);
+    }
 
-        // 顯示預覽（可選）
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-        preview.src = dataUrl;
-        preview.style.display = 'block';
+    box.addEventListener('pointerdown', (e) => {
+      const handle = e.target?.dataset?.h;
+      if (handle) startDrag(e, 'resize-' + handle);
+      else startDrag(e, 'move');
+    });
 
-        // 轉 blob 丟給 /classify
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
-        if (!blob) throw new Error('toBlob 失敗');
+    box.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const p = pointerPos(e);
+      const dx = p.x - drag.startX;
+      const dy = p.y - drag.startY;
 
-        setStatus('送出分類中…');
-        const data = await classifyBlob(blob, 'camera.jpg');
-        outEl.textContent = JSON.stringify(data, null, 2);
-        setStatus('鏡頭分類完成 ✅');
-      } catch (e) {
-        outEl.textContent = JSON.stringify({ error: String(e) }, null, 2);
-        setStatus('鏡頭分類失敗（看結果區 error）', false);
+      const minSize = 0.12; // 最小框大小（比例）
+      let s = { ...drag.start };
+
+      if (drag.mode === 'move') {
+        s.x = clamp(drag.start.x + dx, 0, 1 - s.w);
+        s.y = clamp(drag.start.y + dy, 0, 1 - s.h);
+      } else {
+        const t = drag.mode.replace('resize-','');
+        if (t === 'tl') {
+          const nx = clamp(drag.start.x + dx, 0, drag.start.x + drag.start.w - minSize);
+          const ny = clamp(drag.start.y + dy, 0, drag.start.y + drag.start.h - minSize);
+          s.w = drag.start.x + drag.start.w - nx; s.x = nx;
+          s.h = drag.start.y + drag.start.h - ny; s.y = ny;
+        }
+        if (t === 'tr') {
+          const ny = clamp(drag.start.y + dy, 0, drag.start.y + drag.start.h - minSize);
+          const nw = clamp(drag.start.w + dx, minSize, 1 - drag.start.x);
+          s.w = nw;
+          s.h = drag.start.y + drag.start.h - ny; s.y = ny;
+        }
+        if (t === 'bl') {
+          const nx = clamp(drag.start.x + dx, 0, drag.start.x + drag.start.w - minSize);
+          const nh = clamp(drag.start.h + dy, minSize, 1 - drag.start.y);
+          s.w = drag.start.x + drag.start.w - nx; s.x = nx;
+          s.h = nh;
+        }
+        if (t === 'br') {
+          s.w = clamp(drag.start.w + dx, minSize, 1 - drag.start.x);
+          s.h = clamp(drag.start.h + dy, minSize, 1 - drag.start.y);
+        }
       }
+
+      boxState = s;
+      renderBox();
     });
 
-    // 小提醒：如果你的後端只有 /health，也可以在這裡測一下
-    fetch('/health').then(r => r.json()).then(() => {
-      // ok
-    }).catch(() => {
-      // ignore
-    });
+    box.addEventListener('pointerup', () => drag = null);
+    box.addEventListener('pointercancel', () => drag = null);
+
+    // 先畫一次
+    renderBox();
   </script>
 </body>
 </html>
