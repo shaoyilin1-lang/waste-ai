@@ -2,161 +2,102 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>Waste AI 掃描版</title>
-
-  <!-- PWA -->
-  <link rel="manifest" href="/manifest.json" />
-  <meta name="theme-color" content="#000000" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Waste AI</title>
 
   <style>
-    * {
-      box-sizing: border-box;
+    html, body {
       margin: 0;
       padding: 0;
-    }
-
-    html, body {
-      width: 100%;
+      background: black;
+      color: white;
       height: 100%;
-      background: #000;
       overflow: hidden;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont;
-      color: #fff;
+      font-family: system-ui, -apple-system;
     }
 
-    #camera {
+    #app {
       position: fixed;
+      inset: 0;
+    }
+
+    video {
+      position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
-      z-index: 1;
     }
 
-    /* 掃描框 */
-    #frame {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      width: 70vw;
-      height: 40vw;
-      max-width: 360px;
-      max-height: 220px;
-      transform: translate(-50%, -50%);
-      border: 3px solid rgba(255,255,255,0.9);
-      border-radius: 16px;
-      z-index: 2;
-    }
-
-    #frame::after {
-      content: "";
+    .info {
       position: absolute;
-      inset: 12%;
-      border: 2px dashed rgba(255,255,255,0.6);
-      border-radius: 12px;
-    }
-
-    /* 結果顯示 */
-    #result {
-      position: fixed;
-      bottom: 0;
-      width: 100%;
-      padding: 16px;
-      background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
-      z-index: 3;
+      bottom: env(safe-area-inset-bottom, 16px);
+      left: 0;
+      right: 0;
       text-align: center;
+      padding: 12px;
+      background: rgba(0,0,0,0.6);
       font-size: 18px;
-    }
-
-    #status {
-      font-size: 14px;
-      opacity: 0.8;
-      margin-top: 4px;
     }
   </style>
 </head>
+
 <body>
-
-  <!-- 鏡頭 -->
-  <video id="camera" autoplay playsinline muted></video>
-
-  <!-- 掃描框 -->
-  <div id="frame"></div>
-
-  <!-- 結果 -->
-  <div id="result">
-    <div id="label">對準物品掃描中…</div>
-    <div id="status">鏡頭啟動中</div>
+  <div id="app">
+    <video id="video" autoplay playsinline></video>
+    <div class="info" id="result">啟動鏡頭中…</div>
   </div>
 
-  <!-- 隱藏 canvas 用來截圖 -->
   <canvas id="canvas" style="display:none;"></canvas>
 
   <script>
-    const video = document.getElementById("camera");
+    const video = document.getElementById("video");
     const canvas = document.getElementById("canvas");
-    const labelEl = document.getElementById("label");
-    const statusEl = document.getElementById("status");
-
-    let stream = null;
+    const resultBox = document.getElementById("result");
 
     async function startCamera() {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" }
-          },
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
           audio: false
         });
         video.srcObject = stream;
-        statusEl.textContent = "鏡頭已啟動，正在掃描";
+        resultBox.textContent = "鏡頭已啟動（每 5 秒自動掃描）";
       } catch (err) {
+        resultBox.textContent = "❌ 無法開啟鏡頭";
         console.error(err);
-        statusEl.textContent = "❌ 無法開啟鏡頭（請允許相機權限）";
       }
     }
 
-    function captureAndSend() {
+    async function captureAndSend() {
       if (!video.videoWidth) return;
 
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-
-      canvas.width = vw;
-      canvas.height = vh;
-
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
       const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, vw, vh);
+      ctx.drawImage(video, 0, 0);
 
       canvas.toBlob(async (blob) => {
-        if (!blob) return;
-
-        const form = new FormData();
-        form.append("image", blob, "frame.jpg");
+        const formData = new FormData();
+        formData.append("image", blob, "scan.jpg");
 
         try {
           const res = await fetch("/classify", {
             method: "POST",
-            body: form
+            body: formData
           });
-
           const data = await res.json();
-          if (data?.result) {
-            labelEl.textContent = `物品：${data.result.item} ｜ 分類：${data.result.category}`;
-          }
-        } catch (e) {
-          console.error(e);
+
+          resultBox.textContent =
+            `物品：${data.item}｜分類：${data.category}`;
+        } catch {
+          resultBox.textContent = "掃描失敗";
         }
       }, "image/jpeg", 0.8);
     }
 
-    // 啟動
     startCamera();
-
-    // 每 1 秒自動掃描
-    setInterval(captureAndSend, 1000);
+    setInterval(captureAndSend, 5000);
   </script>
 </body>
 </html>
-
