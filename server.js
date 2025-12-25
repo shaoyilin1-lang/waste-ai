@@ -15,13 +15,38 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 
 // 上傳圖片 → 回傳分類結果（先用假資料）
 function fakePredict() {
-  const items = ["寶特瓶", "鋁罐", "紙箱", "尿布", "菸蒂"];
-  const item = items[Math.floor(Math.random() * items.length)];
-  const category =
-    item === "寶特瓶" || item === "鋁罐" || item === "紙箱" ? "資源回收" : "一般垃圾";
-  return { item, category };
-}
+  const items = [
+    // 資源回收
+    { item: "寶特瓶", category: "資源回收" },
+    { item: "鋁罐", category: "資源回收" },
+    { item: "鐵罐", category: "資源回收" },
+    { item: "紙箱", category: "資源回收" },
+    { item: "報紙", category: "資源回收" },
+    { item: "玻璃瓶", category: "資源回收" },
 
+    // 塑膠回收
+    { item: "塑膠杯", category: "塑膠回收" },
+    { item: "塑膠袋", category: "塑膠回收" },
+    { item: "飲料杯蓋", category: "塑膠回收" },
+    { item: "塑膠吸管", category: "塑膠回收" },
+
+    // 一般垃圾（含衛生紙）
+    { item: "衛生紙", category: "一般垃圾" },
+    { item: "用過的衛生紙", category: "一般垃圾" },
+    { item: "口罩", category: "一般垃圾" },
+    { item: "尿布", category: "一般垃圾" },
+    { item: "破布", category: "一般垃圾" },
+    { item: "髒掉的紙張", category: "一般垃圾" }
+  ];
+
+  const pick = items[Math.floor(Math.random() * items.length)];
+
+  return {
+    item: pick.item,
+    category: pick.category,
+    confidence: (Math.random() * 0.15 + 0.85).toFixed(2)
+  };
+}
 app.post("/classify", upload.single("image"), (req, res) => {
   try {
     if (!req.file || !req.file.buffer) {
